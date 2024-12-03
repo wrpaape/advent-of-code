@@ -1,4 +1,7 @@
+# Ignore proof of ownership..
+ownerproof.txt
 # Ignore leaf files...
+*/*/*
 */*/*
 # except:
 !*/*/Makefile
