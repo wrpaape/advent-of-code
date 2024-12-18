@@ -2,9 +2,11 @@
 #include <cassert>
 #include <charconv>
 #include <cstdint>
+#include <deque>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
-#include <queue>
+#include <limits>
 #include <ranges>
 #include <sstream>
 #include <string>
@@ -25,8 +27,7 @@ auto getInput(std::istream& stream)
 {
     const std::vector<std::string>           lines(getLines(stream));
     std::vector<std::array<std::int64_t, 2>> bytePositions(lines.size());
-#if 0
-    for (auto& [line, bytePos] : std::views::zip(lines, bytePositions)) {
+    for (const auto [line, bytePos] : std::views::zip(lines, bytePositions)) {
         const char *c = line.c_str(), *const cEnd = c + line.size();
         for (auto& coord : bytePos) {
             const auto [ptr, ec] = std::from_chars(c, cEnd, coord);
@@ -34,17 +35,6 @@ auto getInput(std::istream& stream)
             assert(ec == std::errc());
         }
     }
-
-#else
-    for (std::size_t i = 0; i < lines.size(); ++i) {
-        const char *c = lines[i].c_str(), *const cEnd = c + lines[i].size();
-        for (std::size_t j = 0; j < 2; ++j) {
-            const auto [ptr, ec] = std::from_chars(c, cEnd, bytePositions[i][j]);
-            c = ptr + (ptr != cEnd);
-            assert(ec == std::errc());
-        }
-    }
-#endif
     return bytePositions;
 }
 
@@ -60,56 +50,80 @@ auto getInput(const std::string_view& input)
     return getInput(stream);
 }
 
-bool tryPath(std::int64_t                                    gridSize,
-             std::int64_t                                    numBytes,
-             const std::vector<std::array<std::int64_t, 2>>& bytes)
+std::int64_t getComp(std::vector<std::int64_t>& comps, std::int64_t n)
 {
-    assert(gridSize > 0);
-    assert(numBytes >= 0);
-    assert(numBytes <= bytes.size());
+    assert(n >= 0);
+    assert(n < std::int64_t(comps.size()));
+    assert(comps[n] < std::int64_t(comps.size()));
 
-    std::vector<std::vector<bool>> grid(gridSize,
-                                        std::vector<bool>(gridSize, true));
-    for (std::int64_t i = 0; i < numBytes; ++i)
-        grid[bytes[i][1]][bytes[i][0]] = false;
+    if (comps[n] < 0)
+        return n;
 
-    const std::array<std::int64_t, 2> k_Exit = { gridSize-1, gridSize-1 };
-    std::queue<std::array<std::int64_t, 2>> frontier;
-    frontier.push({ 0, 0 });
-    assert(grid[0][0]);
-    grid[0][0] = false;
-    for (std::int64_t numSteps = 0; !frontier.empty(); ++numSteps) {
-        for (auto rem = frontier.size(); rem > 0; --rem) {
-            const auto bytePos = frontier.front();
-            frontier.pop();
-            if (bytePos == k_Exit)
-                return true;
+    comps[n] = getComp(comps, comps[n]);
+    return comps[n];
+}
 
-            const auto [i, j] = bytePos;
-            for (int d = 0; d < 4; ++d) {
-                constexpr int k_Dir[] = { 0, +1, 0, -1, 0 };
-                if (const auto nI = i+k_Dir[d], nJ = j+k_Dir[d+1];
-                    (nI >= 0) && (nI < gridSize) &&
-                    (nJ >= 0) && (nJ < gridSize) &&
-                    grid[nI][nJ]) {
-                    grid[nI][nJ] = false;
-                    frontier.push({ nI, nJ });
-                }
-            }
-        }
-    }
-    return false;
+bool tryMerge(std::vector<std::int64_t>& comps, std::int64_t n1, std::int64_t n2) {
+    auto c1 = getComp(comps, n1), c2 = getComp(comps, n2);
+    if (c1 == c2)
+        return false;
+
+    if (comps[c2] < comps[c1])
+        std::swap(c1, c2);
+
+    comps[c1] -= (comps[c1] == comps[c2]);
+    comps[c2] = c1;
+    return true;
 }
 
 std::array<std::int64_t, 2>
 runSim(std::int64_t                                    gridSize,
        const std::vector<std::array<std::int64_t, 2>>& bytes)
 {
-    std::int64_t numBytes;
-    for (numBytes = 0; tryPath(gridSize, numBytes, bytes); ++numBytes)
-        continue;
+    assert(gridSize >= 0);
 
-    return bytes[numBytes-1];
+    const auto numComps = gridSize*gridSize;
+    std::vector<std::int64_t> comps(numComps, -1);
+    for (const auto [x, y] : bytes)
+        comps[y*gridSize+x] = std::numeric_limits<std::int64_t>::max();
+
+    constexpr std::int64_t k_Dir[]  = { 0, +1, 0, -1, 0 };
+    std::deque<std::array<std::int64_t, 2>> frontier;
+    for (std::int64_t pI = 0, pN = 0; pI < gridSize; ++pI) {
+        for (std::int64_t pJ = 0; pJ < gridSize; ++pJ, ++pN) if (comps[pN] < numComps) {
+            frontier.clear();
+            frontier.push_back({ pI, pJ });
+            do {
+                const auto [i, j] = frontier.front();
+                frontier.pop_front();
+                const auto n = i*gridSize+j;
+                for (int d = 0; d < 4; ++d)
+                    if (const auto nI = i+k_Dir[d], nJ = j+k_Dir[d+1], nN = nI*gridSize+nJ;
+                        (nI >= 0) && (nI < gridSize) &&
+                        (nJ >= 0) && (nJ < gridSize) &&
+                        (comps[nN] < numComps) &&
+                        tryMerge(comps, n, nN))
+                        frontier.push_back({ nI, nJ });
+            } while (!frontier.empty());
+        }
+    }
+    assert(getComp(comps, 0) != getComp(comps, numComps-1));
+    for (const auto [x, y] : bytes | std::views::reverse) {
+        const auto i = y, j = x, n = i*gridSize+j;
+        assert(comps[n] == std::numeric_limits<std::int64_t>::max());
+        comps[n] = -1;
+        for (int d = 0; d < 4; ++d)
+            if (const auto nI = i+k_Dir[d], nJ = j+k_Dir[d+1], nN = nI*gridSize+nJ;
+                (nI >= 0) && (nI < gridSize) &&
+                (nJ >= 0) && (nJ < gridSize) &&
+                (comps[nN] < numComps))
+                (void) tryMerge(comps, n, nN);
+
+        if (getComp(comps, 0) == getComp(comps, numComps-1))
+            return { x, y };
+    }
+    assert(!"bad input");
+    std::unreachable();
 }
 
 void check(int                                lineNumber,
@@ -164,7 +178,8 @@ int main()
 {
     runTests();
 
-    const auto byte = runSim(71, getInput());
+    const std::array<std::int64_t, 2> byte = runSim(71, getInput()), expected = { 22, 33 };
     std::cout << byte[0] << ',' << byte[1] << std::endl;
+    assert(byte == expected);
     return 0;
 }
