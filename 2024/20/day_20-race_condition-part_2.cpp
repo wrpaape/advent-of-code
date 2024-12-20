@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
@@ -9,7 +10,6 @@
 #include <numeric>
 #include <queue>
 #include <ranges>
-#include <set>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -93,6 +93,31 @@ std::vector<std::vector<std::int64_t>> bfs(
     return dist;
 }
 
+std::vector<std::array<std::int64_t, 2>> makeWindow(std::int64_t stride)
+{
+    std::vector<std::array<std::int64_t, 2>> pFrontier, nFrontier, window;
+    nFrontier.push_back({ 0, 0 });
+    std::vector<std::vector<bool>> visited(2*stride+1,
+                                           std::vector<bool>(2*stride+1));
+    visited[stride][stride] = true;
+    for (std::int64_t numSteps = 1; numSteps <= stride; ++numSteps) {
+        nFrontier.swap(pFrontier);
+        nFrontier.clear();
+        for (const auto [pI, pJ] : pFrontier) {
+            for (int d = 0; d < 4; ++d) {
+                if (const auto nI = pI+Dir[d], nJ = pJ+Dir[d+1]; 
+                    !visited[stride+nI][stride+nJ]) {
+                    visited[stride+nI][stride+nJ] = true;
+                    nFrontier.push_back({ nI, nJ });
+                }
+            }
+        }
+        window.insert(window.end(), nFrontier.begin(), nFrontier.end());
+    }
+    return window;
+}
+
+
 std::int64_t solve(std::int64_t                    threshold,
                    std::int64_t                    cheatStride,
                    const std::vector<std::string>& grid,
@@ -103,6 +128,7 @@ std::int64_t solve(std::int64_t                    threshold,
     const auto fromStart = bfs(grid, start), fromEnd = bfs(grid, end);
     assert(fromStart[end[0]][end[1]] == fromEnd[start[0]][start[1]]);
     const std::int64_t cutoff = fromStart[end[0]][end[1]] - threshold;
+    const auto window = makeWindow(cheatStride);
     std::int64_t total = 0;
     for (std::int64_t i = 0; i < m; ++i) {
         for (std::int64_t j = 0; j < n; ++j) {
@@ -112,28 +138,15 @@ std::int64_t solve(std::int64_t                    threshold,
             if (debug)
                 std::cout << '(' << i << ',' << j << ')' << std::endl;
 
-            std::vector<std::array<std::int64_t, 2>> pFrontier, nFrontier;
-            nFrontier.push_back({ i, j });
-            std::set<std::array<std::int64_t, 2>> visited;
-            visited.insert({ i, j });
-            for (std::int64_t numSteps = 1; numSteps <= cheatStride; ++numSteps) {
-                nFrontier.swap(pFrontier);
-                nFrontier.clear();
-                for (const auto [pI, pJ] : pFrontier) {
-                    for (int d = 0; d < 4; ++d) {
-                        if (const auto nI = pI+Dir[d], nJ = pJ+Dir[d+1]; 
-                            (nI >= 0) && (nI < m) && (nJ >= 0) && (nJ < n)
-                            && visited.insert({ nI, nJ }).second) {
-                            nFrontier.push_back({ nI, nJ });
-                            if (grid[nI][nJ] != '#') {
-                                const auto dist = fromStart[i][j] +
-                                                  numSteps +
-                                                  fromEnd[nI][nJ];
-                                total += (dist <= cutoff);
-                            }
-                        }
-                    }
-                }
+            for (const auto [di, dj] : window) {
+                const auto nI = i+di, nJ = j+dj;
+                if ((nI < 0) || (nI >= m) || (nJ < 0) || (nJ >= n) ||
+                    (grid[nI][nJ] == '#'))
+                    continue;
+
+                const auto numSteps = std::abs(di) + std::abs(dj);
+                const auto dist = fromStart[i][j] + numSteps + fromEnd[nI][nJ];
+                total += (dist <= cutoff);
             }
         }
     }
@@ -191,7 +204,7 @@ int main()
 {
     runTests();
 
-    const auto numCheats = solve(100, 20, getInput(), true);
+    const auto numCheats = solve(100, 20, getInput());
     std::cout << numCheats << std::endl;
     return 0;
 }
