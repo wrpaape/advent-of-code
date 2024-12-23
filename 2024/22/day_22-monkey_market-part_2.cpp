@@ -1,18 +1,19 @@
 #include <algorithm>
 #include <array>
+#include <bitset>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <map>
 #include <numeric>
 #include <ranges>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <unordered_map>
-#include <map>
 #include <utility>
 #include <vector>
 
@@ -70,47 +71,67 @@ typedef std::array<std::int8_t, 4> Seq;
 //     }
 // };
 // typedef std::unordered_map<Seq, std::int64_t, HashSeq> SeqCounter;
-typedef std::map<Seq, std::int64_t> SeqCounter;
+// typedef std::map<Seq, std::int64_t> SeqCounter;
 
-auto addBananas(std::int64_t secretNumber, std::size_t numSecretNumbers)
+constexpr std::int64_t k_Base   = 19,
+                       k_SeqMag = k_Base*k_Base*k_Base*k_Base;
+typedef std::array<std::uint32_t, k_SeqMag> SeqCounter;
+typedef std::bitset<k_SeqMag> SeqSet;
+
+void addBananas(SeqCounter&  seqCount,
+                std::int64_t secretNumber,
+                std::size_t  numSecretNumbers)
 {
-    SeqCounter seqCounts;
-    std::array<std::int8_t, 4> seq;
-    assert(numSecretNumbers > seq.size());
+    assert(numSecretNumbers > 4);
+
+    SeqSet seqSet;
+    std::uint32_t seq = 0;
     std::int8_t nextPrice = secretNumber % 10, prevPrice;
-    const auto updatePrices = [&]() {
+    const auto update = [&]() {
         secretNumber = nextSecretNumber(secretNumber);
         prevPrice    = nextPrice;
         nextPrice    = secretNumber % 10;
+        seq *= k_Base;
+        seq += (nextPrice - prevPrice) + 9;
+        seq %= k_SeqMag;
     };
-    for (std::size_t i = 0; i < seq.size(); ++i) {
-        updatePrices();
-        seq[i] = nextPrice - prevPrice;
-    }
-    for (auto remIters = numSecretNumbers - seq.size() - 1; ; --remIters) {
-        seqCounts.emplace(seq, nextPrice);
-        if (remIters == 0)
-            return seqCounts;
+    for (std::size_t i = 0; i < 4; ++i)
+        update();
 
-        std::copy(std::next(seq.begin()), seq.end(), seq.begin());
-        updatePrices();
-        seq.back() = nextPrice - prevPrice;
+    for (auto remIters = numSecretNumbers - 4 - 1; ; --remIters) {
+        if (!seqSet.test(seq)) {
+            seqSet.set(seq);
+            seqCount[seq] += nextPrice;
+        }
+        if (remIters == 0)
+            break;
+
+        update();
     }
 }
 
 std::int64_t solve(const std::vector<std::int64_t>& secretNumbers,
                    std::size_t                      numSecretNumbers)
 {
-    SeqCounter seqCountSums;
-    for (const std::int64_t secretNumber : secretNumbers) {
-        const auto seqCounts = addBananas(secretNumber, numSecretNumbers);
-        for (const auto [seq, count] : seqCounts)
-            seqCountSums[seq] += count;
+    SeqCounter seqCountSums{};
+    for (const std::int64_t secretNumber : secretNumbers)
+        addBananas(seqCountSums, secretNumber, numSecretNumbers);
+
+    return *std::max_element(seqCountSums.begin(), seqCountSums.end());
+}
+
+void check(int                              lineNumber,
+           std::int64_t                     expectedMaxBananas,
+           std::size_t                      numSecretNumbers,
+           const std::vector<std::int64_t>& secretNumbers)
+{
+    const auto maxBananas = solve(secretNumbers, numSecretNumbers);
+    if (maxBananas != expectedMaxBananas) {
+        std::cerr << "failure(" << lineNumber << "):"
+                  << "\n> expected: " << expectedMaxBananas
+                  << "\n> actual:   " << maxBananas
+                  << std::endl;
     }
-    return std::max_element(seqCountSums.begin(), seqCountSums.end(),
-                            [](const auto& lhs, const auto& rhs) {
-                                return lhs.second < rhs.second;
-                            })->second;
 }
 
 void check(int                     lineNumber,
@@ -118,13 +139,10 @@ void check(int                     lineNumber,
            std::size_t             numSecretNumbers,
            const std::string_view& input)
 {
-    const auto maxBananas = solve(getInput(input), numSecretNumbers);
-    if (maxBananas != expectedMaxBananas) {
-        std::cerr << "failure(" << lineNumber << "):"
-                  << "\n> expected: " << expectedMaxBananas
-                  << "\n> actual:   " << maxBananas
-                  << std::endl;
-    }
+    return check(lineNumber,
+                 expectedMaxBananas,
+                 numSecretNumbers,
+                 getInput(input));
 }
 
 void runTests()
@@ -136,6 +154,7 @@ void runTests()
           "2\n"
           "3\n"
           "2024\n");
+    check(__LINE__, 1701, 2000, getInput());
 }
 
 int main()
