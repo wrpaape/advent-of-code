@@ -143,7 +143,7 @@ int main()
 {
     runTests();
 
-    const auto numPairs = solve(getInput());
-    std::cout << numPairs << std::endl;
+    const auto password = solve(getInput());
+    std::cout << password << std::endl;
     return 0;
 }
